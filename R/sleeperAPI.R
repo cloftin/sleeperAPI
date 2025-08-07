@@ -2,57 +2,105 @@
 # id: 1204180167983902720
 
 #' @export
-get_leagues <- function(id = 1204180167983902720, season = 2024) {
+get_leagues <- function(id = 1204180167983902720, season = 2025) {
 
   user_id = "577448763228983296"
-  t <- httr::content(httr::GET(url = paste0("https://api.sleeper.app/v1/user/", user_id, "/leagues/nfl/", 2024)))
+  t <- httr::content(httr::GET(url = paste0("https://api.sleeper.app/v1/user/", user_id, "/leagues/nfl/", season)))
 
-}
-
-get_specific_league <- function(league_id = 1204180167983902720, season = 2025) {
-
-  httr::content(httr::GET(url = paste0("https://api.sleeper.app/v1/league/", league_id)))
+  return(t)
 }
 
 #' @export
-get_managers <- function(league_id = 1204180167983902720, season = 2025) {
+get_specific_league <- function(league_id = 1204180167983902720) {
+
+  return(httr::content(httr::GET(url = paste0("https://api.sleeper.app/v1/league/", league_id))))
+}
+
+#' @export
+get_managers <- function(league_id = 1204180167983902720) {
   managers <- httr::content(httr::GET(url = paste0("https://api.sleeper.app/v1/league/", league_id, "/users")))
 
   managers <- plyr::ldply(managers, function(x) {
     return(cbind(x$display_name, if(is.null(x$metadata$team_name)) {x$display_name} else {x$metadata$team_name}, x$user_id))
   })
 
-  colnames(managers) <- c("manager", "team_name", "user_id")
+  colnames(managers) <- c("manager", "team_name", "owner_id")
 
-  return(managers)
+  roster <- unique(sleeperAPI:::get_rosters()[, c("roster_id", "owner_id")])
+
+  managers <- merge(managers, roster, by = c("owner_id"))
+
+  return(data.table::as.data.table(managers))
 }
 
 #' @export
 get_rosters <- function(league_id = 1204180167983902720) {
   rosters <- httr::content(httr::GET(paste0("https://api.sleeper.app/v1/league/", league_id, "/rosters")))
 
-  plyr::ldply(rosters, function(x) {
-    players <- data.frame(players = cbind(unlist(c(x$starters, x$players))))
-    players$roster_id <- x$roster_id
-    players$ownder_id <- x$owner_id
-    players
-  })
-
+  return(
+    data.table::as.data.table(plyr::ldply(rosters, function(x) {
+      players <- data.frame(player_id = cbind(unlist(c(x$starters, x$players))))
+      players$roster_id <- x$roster_id
+      players$owner_id <- x$owner_id
+      players
+    }))
+  )
 }
 
+#' @export
 get_transactions <- function(league_id = 1204180167983902720) {
 
   moves <- httr::content(httr::GET(url = paste0("https://api.sleeper.app/v1/league/", league_id, "/transactions/1")))
 
   trades <- moves[grep("trade", plyr::laply(moves, function(x) {x$type}))]
 
-  trades <- do.call(rbind, trades)
+  traded_players <- plyr::ldply(trades, function(x) {
+    if(!is.null(x$adds)) {
+      players <- names(x$adds)
+      team_to <- unlist(x$adds)
+      team_from <- unlist(x$drops)
 
-  trades <-
+      players <- data.frame(player_id = players, team_to = team_to, team_from = team_from)
 
+      players$transaction_id <- x$transaction_id
+
+      return(players)
+
+    }
+  })
+
+  traded_picks <- plyr::ldply(trades, function(x) {
+    picks <- data.table::rbindlist(x$draft_picks)
+    picks$league_id <- NULL
+    data.table::setnames(picks, c("round", "season", "original_owner", "to_owner", "from_owner"))
+
+    picks$transaction_id <- x$transaction_id
+
+    return(picks)
+  })
+
+  return(list(data.table::as.data.table(traded_players), data.table::as.data.table(traded_picks)))
 }
 
 
+#' @export
+get_all_traded_picks <- function(league_id = 1204180167983902720) {
+  picks <- httr::content(httr::GET(url = paste0("https://api.sleeper.app/v1/league/", league_id, "/traded_picks")))
+  picks <- data.table::rbindlist(picks)
+  setnames(picks, c("round", "season", "original_owner", "to_owner", "from_owner"))
+
+  managers <- sleeperAPI:::get_managers(league_id)
+
+  picks$original_owner <- unlist(lapply(picks$original_owner, function(x) managers$manager[match(x, managers$roster_id)]))
+  picks$to_owner <- unlist(lapply(picks$to_owner, function(x) managers$manager[match(x, managers$roster_id)]))
+  picks$from_owner <- unlist(lapply(picks$from_owner, function(x) managers$manager[match(x, managers$roster_id)]))
+
+  picks$id <- paste(picks$original_owner, picks$season, picks$round, sep = "_")
+
+  return(picks)
+}
+
+#' @export
 get_players <- function(league_id = 1204180167983902720, force_update = F) {
 
   if(force_update) {
@@ -68,7 +116,8 @@ get_players <- function(league_id = 1204180167983902720, force_update = F) {
 
     write.csv(players, file = "players.csv", row.names = F)
 
+    return(data.table::as.data.table(players))
   } else
-    return(read.csv("players.csv", row.names = F, stringsAsFactors = F))
+    return(data.table::as.data.table(read.csv("players.csv", header = T, stringsAsFactors = F)))
 
 }
