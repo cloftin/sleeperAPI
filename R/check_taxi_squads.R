@@ -35,6 +35,9 @@ check_taxi_squads <- function(league_name = "Momma", season_id = 2026) {
   rosters$owner <- unlist(lapply(rosters$owner_id, function(x) owners$manager[match(x, owners$owner_id)]))
 
   rosters <- merge(rosters, all_draft_picks, by = c("player_id", "player"), all = T)
+  data.table::setorder(rosters, player_id, draft_start)
+
+  rosters <- rosters[, .SD[.N] ,  by = c("player_id") ]
 
   return(rosters[roster_spot == 'Taxi' & (owner != picked_by | is.na(picked_by)),])
 
