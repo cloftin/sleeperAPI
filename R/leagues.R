@@ -49,10 +49,11 @@ get_rosters <- function(league_id = 1204180167983902720) {
     starters <- as.data.frame(cbind(unlist(x$starters), rep("Starter", length(x$starters))))
     bench <- as.data.frame(cbind(unlist(x$players), rep("Bench", length(x$players))))
     taxi <- as.data.frame(cbind(unlist(x$taxi), rep("Taxi", length(x$taxi))))
+    reserve <- as.data.frame(cbind(unlist(x$reserve), rep("IR", length(x$reserve))))
 
-    bench <- bench[!(bench[,1] %in% starters[,1]) & !(bench[,1] %in% taxi[,1]),]
+    bench <- bench[!(bench[,1] %in% starters[,1]) & !(bench[,1] %in% taxi[,1]) & !(bench[,1] %in% reserve[,1]),]
 
-    players <- rbind(starters, bench, taxi)
+    players <- rbind(starters, bench, taxi, reserve)
 
     players$roster_id <- x$roster_id
     players$owner_id <- x$owner_id
